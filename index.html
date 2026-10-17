@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>사이클로이드 감속기 물리 시뮬레이터 (Cycloidal Drive Simulator)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      user-select: none;
+    }
+
+    /* 전체 레이아웃 */
+    #app-container {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* 좌측 고정 제어 패널 */
+    #sidebar {
+      width: 340px;
+      flex-shrink: 0;
+      height: 100%;
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      z-index: 20;
+    }
+
+    #sidebar::-webkit-scrollbar {
+      width: 6px;
+    }
+    #sidebar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    #sidebar::-webkit-scrollbar-thumb {
+      background: #30363d;
+      border-radius: 3px;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #58a6ff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 4px 0;
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin: 0;
+    }
+
+    .panel-section {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .section-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .section-label span.value-highlight {
+      color: #58a6ff;
+      font-size: 13px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* 사양 태그 배지 그리드 */
+    .spec-badges {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .spec-badge {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: #c9d1d9;
+      display: flex;
+      justify-content: space-between;
+    }
+    .spec-badge strong {
+      color: #58a6ff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* 슬라이더 및 입력창 공통 */
+    .slider-input-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slider-input-group input[type="range"] {
+      flex: 1;
+      accent-color: #58a6ff;
+      cursor: pointer;
+      height: 4px;
+      background: #21262d;
+      border-radius: 2px;
+    }
+    .num-input {
+      width: 70px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #58a6ff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 8px;
+      text-align: right;
+      outline: none;
+    }
+    .num-input:focus {
+      border-color: #58a6ff;
+    }
+
+    /* 프리셋 및 조작 버튼 */
+    .btn-row {
+      display: flex;
+      gap: 6px;
+    }
+    .btn {
+      flex: 1;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 6px 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+    }
+    .btn:hover {
+      background: #30363d;
+      border-color: #8b949e;
+      color: #ffffff;
+    }
+    .btn:active {
+      transform: scale(0.97);
+    }
+    .btn.active {
+      background: rgba(88, 166, 255, 0.15);
+      border-color: #58a6ff;
+      color: #58a6ff;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .btn-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+    .btn-reset {
+      grid-column: span 3;
+      background: rgba(248, 81, 73, 0.1);
+      border-color: rgba(248, 81, 73, 0.4);
+      color: #ff7b72;
+    }
+    .btn-reset:hover {
+      background: rgba(248, 81, 73, 0.25);
+      border-color: #f85149;
+      color: #ffffff;
+    }
+
+    /* 하단 가이드 */
+    .guide-box {
+      background: rgba(56, 139, 253, 0.08);
+      border: 1px solid rgba(56, 139, 253, 0.25);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #8b949e;
+    }
+    .guide-box strong {
+      color: #58a6ff;
+    }
+
+    /* 우측 메인 영역 */
+    #main-viewport {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      height: 100%;
+      background: #0d1117;
+    }
+
+    #mainCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 플로팅 HUD 카드 공통 (Glassmorphism) */
+    .glass-card {
+      position: absolute;
+      background: rgba(22, 27, 34, 0.88);
+      border: 1px solid #30363d;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+    }
+
+    /* 우측 상단 HUD */
+    #hud-card {
+      top: 20px;
+      right: 20px;
+      width: 260px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .hud-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin: 0;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #30363d;
+    }
+    .hud-metric {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 12px;
+      color: #8b949e;
+    }
+    .hud-metric-val {
+      font-size: 13px;
+      font-weight: 600;
+      color: #c9d1d9;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .badge-status {
+      margin-top: 4px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.5px;
+      transition: all 0.2s ease;
+    }
+    .status-normal {
+      background: rgba(46, 160, 67, 0.2);
+      border: 1px solid #2ea043;
+      color: #3fb950;
+    }
+    .status-warn {
+      background: rgba(210, 153, 34, 0.2);
+      border: 1px solid #d29922;
+      color: #d29922;
+    }
+    .status-stall {
+      background: rgba(248, 81, 73, 0.25);
+      border: 1px solid #f85149;
+      color: #f85149;
+      animation: pulse-red 1s infinite alternate;
+    }
+
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 4px rgba(248, 81, 73, 0.4); }
+      100% { box-shadow: 0 0 16px rgba(248, 81, 73, 0.8); }
+    }
+
+    /* 우측 하단 그래프 카드 */
+    #graph-card {
+      bottom: 20px;
+      right: 20px;
+      width: 280px;
+      height: 190px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+    }
+    .graph-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .graph-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 0;
+    }
+    .graph-legend {
+      display: flex;
+      gap: 10px;
+      font-size: 10px;
+      color: #8b949e;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend-line-cyan {
+      width: 10px;
+      height: 2px;
+      background: #00d2d3;
+    }
+    .legend-line-amber {
+      width: 10px;
+      height: 2px;
+      background: #d29922;
+    }
+    #graphCanvas {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="app-container">
+    <!-- 좌측 고정 제어 패널 -->
+    <aside id="sidebar">
+      <div>
+        <h1 class="brand-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          CYCLOID LAB
+        </h1>
+        <p class="brand-sub">Kinematics &amp; Stall Dynamics</p>
+      </div>
+
+      <!-- 고정 제원 태그 배지 -->
+      <div class="panel-section">
+        <div class="section-label">기어 설계 제원</div>
+        <div class="spec-badges">
+          <div class="spec-badge">링 핀수 <strong>Zr = 10</strong></div>
+          <div class="spec-badge">치수 <strong>Zc = 9 (9:1)</strong></div>
+          <div class="spec-badge">핀 배치 반경 <strong>Rp = 45mm</strong></div>
+          <div class="spec-badge">핀 반경 <strong>r_pin = 3mm</strong></div>
+        </div>
+      </div>
+
+      <!-- 편심량(e) 제어 -->
+      <div class="panel-section">
+        <div class="section-label">
+          편심량 (Eccentricity e)
+          <span class="value-highlight" id="lbl-e">1.50 mm</span>
+        </div>
+        <div class="slider-input-group">
+          <input type="range" id="range-e" min="0.5" max="3.0" step="0.05" value="1.50">
+          <input type="number" id="num-e" class="num-input" min="0.5" max="3.0" step="0.05" value="1.50">
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="btn-preset-low">저편심 1.0mm</button>
+          <button class="btn active" id="btn-preset-std">표준 1.5mm</button>
+          <button class="btn" id="btn-preset-high">고편심 2.2mm</button>
+        </div>
+      </div>
+
+      <!-- 실험 부하(무게 추) 제어 -->
+      <div class="panel-section">
+        <div class="section-label">
+          인가 하중 (Load Mass)
+          <span class="value-highlight" id="lbl-load">10.0 kg</span>
+        </div>
+        <div class="slider-input-group">
+          <input type="range" id="range-load" min="0" max="50" step="0.5" value="10.0">
+          <input type="number" id="num-load" class="num-input" min="0" max="50" step="0.5" value="10.0">
+        </div>
+        <div class="btn-grid">
+          <button class="btn" id="btn-add-1">+1 kg</button>
+          <button class="btn" id="btn-add-5">+5 kg</button>
+          <button class="btn" id="btn-sub-1">-1 kg</button>
+          <button class="btn" id="btn-sub-5">-5 kg</button>
+          <button class="btn btn-reset" id="btn-reset-load">하중 리셋 (0 kg)</button>
+        </div>
+      </div>
+
+      <!-- 간결한 실험 가이드 -->
+      <div class="guide-box">
+        💡 <strong>역학 특성 가이드:</strong><br>
+        편심량(e)이 커지면 모멘트 암이 증가해 최대 토크가 상승하지만, <strong>2.4mm 이상</strong>에서는 압력각 급증 및 간섭으로 인해 기구가 멈춥니다. 부하 토크(T_load)가 한계 토크(T_max)를 넘어서면 감속기가 <strong>STALL(정지)</strong> 상태에 진입합니다.
+      </div>
+    </aside>
+
+    <!-- 우측 메인 실험실 영역 -->
+    <main id="main-viewport">
+      <canvas id="mainCanvas"></canvas>
+
+      <!-- 우측 상단 플로팅 HUD -->
+      <div id="hud-card" class="glass-card">
+        <h2 class="hud-title">작동 동역학 계측 (HUD)</h2>
+        <div class="hud-metric">
+          <span>편심량 (e)</span>
+          <span class="hud-metric-val" id="hud-e">1.50 mm</span>
+        </div>
+        <div class="hud-metric">
+          <span>최대 압력각 (α_max)</span>
+          <span class="hud-metric-val" id="hud-alpha">19.5°</span>
+        </div>
+        <div class="hud-metric">
+          <span>인가 토크 (T_load)</span>
+          <span class="hud-metric-val" id="hud-tload">4.90 N·m</span>
+        </div>
+        <div class="hud-metric">
+          <span>한계 돌림힘 (T_max)</span>
+          <span class="hud-metric-val" id="hud-tmax">13.25 N·m</span>
+        </div>
+        <div id="hud-status" class="badge-status status-normal">
+          정상 가동 중
+        </div>
+      </div>
+
+      <!-- 우측 하단 플로팅 T_max 특성 곡선 그래프 -->
+      <div id="graph-card" class="glass-card">
+        <div class="graph-title-row">
+          <h2 class="graph-title">T_max 특성 곡선</h2>
+          <div class="graph-legend">
+            <div class="legend-item"><span class="legend-line-cyan"></span>T_max</div>
+            <div class="legend-item"><span class="legend-line-amber"></span>T_load</div>
+          </div>
+        </div>
+        <canvas id="graphCanvas"></canvas>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    /**
+     * 사이클로이드 감속기 물리 시뮬레이션 및 60fps 렌더링 엔진
+     * 순수 Canvas 2D API & Vanilla JS
+     */
+
+    // --- 기어 고정 설계 제원 (mm, SI 단위) ---
+    const GEAR_SPECS = {
+      Zr: 10,              // 외곽 링 핀 개수
+      Zc: 9,               // 사이클로이드 디스크 잇수 (감속비 9:1)
+      Rp: 45.0,            // 하우징 핀 배치 반경 (mm)
+      r_pin: 3.0,          // 외곽 링 핀 반경 (mm)
+      r_drive: 4.0,        // 출력 롤러 핀 반경 (mm)
+      pin_dist: 20.0,      // 출력 롤러 핀 중심 배치 반경 (mm)
+      bearing_r: 9.0,      // 중앙 베어링 구멍 반경 (mm)
+      drum_radius_m: 0.05, // 와이어 가상 출력 드럼 반경 (m = 50mm)
+      gravity: 9.80665     // 중력가속도 (m/s^2)
+    };
+
+    // --- 시뮬레이션 제어 상태 ---
+    let state = {
+      e: 1.50,            // 편심량 (mm)
+      load_kg: 10.0,      // 인가 하중 (kg)
+      phi: 0.0,           // 입력 크랭크 회전각 (rad)
+      isStall: false,
+      isWarning: false,
+      T_load: 0.0,
+      T_max: 0.0,
+      alpha_max_deg: 0.0
+    };
+
+    // 치형 캐싱용 Path2D 객체
+    let cachedDiscPath = null;
+
+    // DOM 요소 캐시
+    const mainCanvas = document.getElementById('mainCanvas');
+    const mainCtx = mainCanvas.getContext('2d');
+    const graphCanvas = document.getElementById('graphCanvas');
+    const graphCtx = graphCanvas.getContext('2d');
+
+    const rangeE = document.getElementById('range-e');
+    const numE = document.getElementById('num-e');
+    const lblE = document.getElementById('lbl-e');
+    const rangeLoad = document.getElementById('range-load');
+    const numLoad = document.getElementById('num-load');
+    const lblLoad = document.getElementById('lbl-load');
+
+    const btnPresetLow = document.getElementById('btn-preset-low');
+    const btnPresetStd = document.getElementById('btn-preset-std');
+    const btnPresetHigh = document.getElementById('btn-preset-high');
+
+    const btnAdd1 = document.getElementById('btn-add-1');
+    const btnAdd5 = document.getElementById('btn-add-5');
+    const btnSub1 = document.getElementById('btn-sub-1');
+    const btnSub5 = document.getElementById('btn-sub-5');
+    const btnResetLoad = document.getElementById('btn-reset-load');
+
+    const hudE = document.getElementById('hud-e');
+    const hudAlpha = document.getElementById('hud-alpha');
+    const hudTload = document.getElementById('hud-tload');
+    const hudTmax = document.getElementById('hud-tmax');
+    const hudStatus = document.getElementById('hud-status');
+
+    // 뷰포트 크기 및 스케일 상태
+    let viewWidth = 0;
+    let viewHeight = 0;
+    let centerX = 0;
+    let centerY = 0;
+    let gearScale = 1.0;
+
+    /**
+     * 1. 사이클로이드 역학 및 한계 토크 계산 함수
+     */
+    function calculateDynamics(e_val, load_val) {
+      const Zr = GEAR_SPECS.Zr;
+      const Rp = GEAR_SPECS.Rp;
+      const K1 = Math.max(0.01, Math.min(0.999, (e_val * Zr) / Rp));
+      const alpha_max = Math.asin(K1);
+      const alpha_max_deg = alpha_max * (180.0 / Math.PI);
+
+      const base_T = 15.0 * (e_val / 1.5) * Math.cos(alpha_max) * (1.0 - 0.18 * Math.tan(alpha_max));
+      const penalty = (e_val > 2.4) ? Math.max(0, 1.0 - Math.pow((e_val - 2.4) / 0.6, 2)) : 1.0;
+      const T_max = Math.max(0, base_T * penalty);
+
+      const T_load = load_val * GEAR_SPECS.gravity * GEAR_SPECS.drum_radius_m;
+
+      const isStall = (T_load >= T_max) || (T_max <= 0.001);
+      const isWarning = !isStall && (T_load >= 0.8 * T_max);
+
+      return {
+        K1,
+        alpha_max,
+        alpha_max_deg,
+        T_max,
+        T_load,
+        isStall,
+        isWarning
+      };
+    }
+
+    /**
+     * 2. 사이클로이드 치형 Path2D 캐시 생성 (e 변경 시에만 호출)
+     */
+    function buildDiscPath(e) {
+      const path = new Path2D();
+      const Zr = GEAR_SPECS.Zr;
+      const Zc = GEAR_SPECS.Zc;
+      const Rp = GEAR_SPECS.Rp;
+      const r_pin = GEAR_SPECS.r_pin;
+      const r_drive = GEAR_SPECS.r_drive;
+      const pin_dist = GEAR_SPECS.pin_dist;
+      const bearing_r = GEAR_SPECS.bearing_r;
+
+      const steps = 720; // 0.5도 분해능으로 매끄러운 곡선 생성
+      const K1 = (e * Zr) / Rp;
+
+      for (let i = 0; i <= steps; i++) {
+        const theta = (i / steps) * 2 * Math.PI;
+        const denom = Math.sqrt(Math.max(1e-6, 1 + K1 * K1 - 2 * K1 * Math.cos(Zc * theta)));
+        const xc = Rp * Math.cos(theta) - e * Math.cos(Zr * theta) - (r_pin / denom) * (Math.cos(theta) - K1 * Math.cos(Zr * theta));
+        const yc = Rp * Math.sin(theta) - e * Math.sin(Zr * theta) - (r_pin / denom) * (Math.sin(theta) - K1 * Math.sin(Zr * theta));
+
+        if (i === 0) {
+          path.moveTo(xc, yc);
+        } else {
+          path.lineTo(xc, yc);
+        }
+      }
+      path.closePath();
+
+      // 중앙 축 베어링 구멍 (반경 9mm)
+      path.moveTo(bearing_r, 0);
+      path.arc(0, 0, bearing_r, 0, 2 * Math.PI, false);
+
+      // 출력 핀 편심 흡수 관통 홀 4개 (반경 R_hole = r_drive + e)
+      const R_hole = r_drive + e;
+      for (let j = 0; j < 4; j++) {
+        const ang = j * (Math.PI / 2);
+        const hx = pin_dist * Math.cos(ang);
+        const hy = pin_dist * Math.sin(ang);
+        path.moveTo(hx + R_hole, hy);
+        path.arc(hx, hy, R_hole, 0, 2 * Math.PI, false);
+      }
+
+      cachedDiscPath = path;
+    }
+
+    /**
+     * 3. HUD 및 텍스트 상태 동기화
+     */
+    function updateHUD() {
+      const dyn = calculateDynamics(state.e, state.load_kg);
+      state.T_max = dyn.T_max;
+      state.T_load = dyn.T_load;
+      state.alpha_max_deg = dyn.alpha_max_deg;
+      state.isStall = dyn.isStall;
+      state.isWarning = dyn.isWarning;
+
+      lblE.textContent = state.e.toFixed(2) + ' mm';
+      rangeE.value = state.e.toFixed(2);
+      numE.value = state.e.toFixed(2);
+
+      lblLoad.textContent = state.load_kg.toFixed(1) + ' kg';
+      rangeLoad.value = state.load_kg.toFixed(1);
+      numLoad.value = state.load_kg.toFixed(1);
+
+      hudE.textContent = state.e.toFixed(2) + ' mm';
+      hudAlpha.textContent = state.alpha_max_deg.toFixed(1) + '°';
+      hudTload.textContent = state.T_load.toFixed(2) + ' N·m (' + state.load_kg.toFixed(1) + 'kg)';
+      hudTmax.textContent = state.T_max.toFixed(2) + ' N·m';
+
+      // 뱃지 상태 업데이트
+      hudStatus.className = 'badge-status';
+      if (state.isStall) {
+        hudStatus.classList.add('status-stall');
+        hudStatus.textContent = 'STALL 한계 정지 (과부하)';
+      } else if (state.isWarning) {
+        hudStatus.classList.add('status-warn');
+        hudStatus.textContent = '과부하 경고 (80% 도달)';
+      } else {
+        hudStatus.classList.add('status-normal');
+        hudStatus.textContent = '정상 가동 (운전 중)';
+      }
+
+      // 프리셋 버튼 활성 클래스 갱신
+      btnPresetLow.classList.toggle('active', Math.abs(state.e - 1.0) < 0.01);
+      btnPresetStd.classList.toggle('active', Math.abs(state.e - 1.5) < 0.01);
+      btnPresetHigh.classList.toggle('active', Math.abs(state.e - 2.2) < 0.01);
+    }
+
+    /**
+     * 4. 서브 그래프 캔버스 렌더링 (T_max 특성 곡선)
+     * e 슬라이더, 하중 변경, 리사이즈 시에만 단독 호출되어 최적화 유지
+     */
+    function drawTorqueGraph() {
+      const rect = graphCanvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = rect.width;
+      const h = rect.height;
+
+      graphCanvas.width = Math.floor(w * dpr);
+      graphCanvas.height = Math.floor(h * dpr);
+
+      graphCtx.save();
+      graphCtx.scale(dpr, dpr);
+      graphCtx.clearRect(0, 0, w, h);
+
+      const padL = 36;
+      const padR = 16;
+      const padT = 16;
+      const padB = 24;
+
+      const plotW = w - padL - padR;
+      const plotH = h - padT - padB;
+
+      const eMin = 0.5;
+      const eMax = 3.0;
+      const tMaxPlot = 25.0;
+
+      function mapX(val) {
+        return padL + ((val - eMin) / (eMax - eMin)) * plotW;
+      }
+      function mapY(val) {
+        return padT + plotH - (Math.max(0, Math.min(tMaxPlot, val)) / tMaxPlot) * plotH;
+      }
+
+      // 그리드 가로선
+      graphCtx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+      graphCtx.lineWidth = 1;
+      graphCtx.fillStyle = '#8b949e';
+      graphCtx.font = '9px ui-monospace, SFMono-Regular, monospace';
+      graphCtx.textAlign = 'right';
+
+      [0, 10, 20].forEach(tVal => {
+        const y = mapY(tVal);
+        graphCtx.beginPath();
+        graphCtx.moveTo(padL, y);
+        graphCtx.lineTo(padL + plotW, y);
+        graphCtx.stroke();
+        graphCtx.fillText(tVal + 'N', padL - 4, y + 3);
+      });
+
+      // 그리드 세로선 (0.5, 1.5, 2.4, 3.0)
+      graphCtx.textAlign = 'center';
+      [0.5, 1.5, 2.4, 3.0].forEach(eVal => {
+        const x = mapX(eVal);
+        graphCtx.beginPath();
+        graphCtx.moveTo(x, padT);
+        graphCtx.lineTo(x, padT + plotH);
+        graphCtx.stroke();
+        graphCtx.fillText(eVal.toFixed(1), x, padT + plotH + 14);
+      });
+
+      // 2.4mm 간섭 한계 표시선
+      const xLimit = mapX(2.4);
+      graphCtx.save();
+      graphCtx.setLineDash([2, 2]);
+      graphCtx.strokeStyle = 'rgba(248, 81, 73, 0.5)';
+      graphCtx.beginPath();
+      graphCtx.moveTo(xLimit, padT);
+      graphCtx.lineTo(xLimit, padT + plotH);
+      graphCtx.stroke();
+      graphCtx.fillStyle = 'rgba(248, 81, 73, 0.7)';
+      graphCtx.font = '8px sans-serif';
+      graphCtx.fillText('간섭 한계', xLimit, padT + 10);
+      graphCtx.restore();
+
+      // 청록색 T_max(e) 곡선 경로 생성
+      const curveSteps = 60;
+      const points = [];
+      for (let i = 0; i <= curveSteps; i++) {
+        const ev = eMin + (i / curveSteps) * (eMax - eMin);
+        const dyn = calculateDynamics(ev, 0);
+        points.push({ x: mapX(ev), y: mapY(dyn.T_max) });
+      }
+
+      // 곡선 하단 그라데이션 채우기
+      if (points.length > 0) {
+        const grad = graphCtx.createLinearGradient(0, padT, 0, padT + plotH);
+        grad.addColorStop(0, 'rgba(0, 210, 211, 0.25)');
+        grad.addColorStop(1, 'rgba(0, 210, 211, 0.0)');
+
+        graphCtx.beginPath();
+        graphCtx.moveTo(points[0].x, padT + plotH);
+        points.forEach(p => graphCtx.lineTo(p.x, p.y));
+        graphCtx.lineTo(points[points.length - 1].x, padT + plotH);
+        graphCtx.closePath();
+        graphCtx.fillStyle = grad;
+        graphCtx.fill();
+
+        // 곡선 스트로크
+        graphCtx.beginPath();
+        points.forEach((p, idx) => {
+          if (idx === 0) graphCtx.moveTo(p.x, p.y);
+          else graphCtx.lineTo(p.x, p.y);
+        });
+        graphCtx.strokeStyle = '#00d2d3';
+        graphCtx.lineWidth = 1.8;
+        graphCtx.stroke();
+      }
+
+      // 황색 점선: 현재 인가 부하 토크(T_load) 수평선
+      const curLoadY = mapY(state.T_load);
+      graphCtx.save();
+      graphCtx.setLineDash([3, 3]);
+      graphCtx.strokeStyle = '#d29922';
+      graphCtx.lineWidth = 1.4;
+      graphCtx.beginPath();
+      graphCtx.moveTo(padL, curLoadY);
+      graphCtx.lineTo(padL + plotW, curLoadY);
+      graphCtx.stroke();
+      graphCtx.restore();
+
+      // 빨간 점 및 수직 점선: 현재 편심량(e) 위치
+      const curX = mapX(state.e);
+      const curTmax = state.T_max;
+      const curY = mapY(curTmax);
+
+      graphCtx.save();
+      graphCtx.setLineDash([2, 2]);
+      graphCtx.strokeStyle = 'rgba(255, 107, 107, 0.6)';
+      graphCtx.beginPath();
+      graphCtx.moveTo(curX, padT + plotH);
+      graphCtx.lineTo(curX, curY);
+      graphCtx.stroke();
+      graphCtx.restore();
+
+      // 현재 동작점 붉은 마커
+      graphCtx.beginPath();
+      graphCtx.arc(curX, curY, 4, 0, 2 * Math.PI);
+      graphCtx.fillStyle = '#ff6b6b';
+      graphCtx.fill();
+      graphCtx.lineWidth = 1.5;
+      graphCtx.strokeStyle = '#ffffff';
+      graphCtx.stroke();
+
+      graphCtx.restore();
+    }
+
+    /**
+     * 5. 메인 캔버스 리사이즈 및 DPR 스케일링 설정
+     */
+    function setupCanvas() {
+      const rect = mainCanvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      viewWidth = rect.width;
+      viewHeight = rect.height;
+
+      mainCanvas.width = Math.floor(viewWidth * dpr);
+      mainCanvas.height = Math.floor(viewHeight * dpr);
+
+      mainCtx.setTransform(1, 0, 0, 1, 0, 0); // 스케일 리셋
+      mainCtx.scale(dpr, dpr);
+
+      // 기어 중심 및 스케일 규칙 적용
+      centerX = viewWidth * 0.38;
+      centerY = viewHeight * 0.50;
+      gearScale = Math.min(viewWidth, viewHeight) / 250;
+
+      drawTorqueGraph();
+    }
+
+    /**
+     * 6. 컨트롤 패널 이벤트 바인딩
+     */
+    function applyEccentricity(newE) {
+      state.e = Math.max(0.5, Math.min(3.0, parseFloat(newE)));
+      buildDiscPath(state.e);
+      updateHUD();
+      drawTorqueGraph();
+    }
+
+    function applyLoad(newLoad) {
+      state.load_kg = Math.max(0, Math.min(50, parseFloat(newLoad)));
+      updateHUD();
+      drawTorqueGraph();
+    }
+
+    rangeE.addEventListener('input', (e) => applyEccentricity(e.target.value));
+    numE.addEventListener('change', (e) => applyEccentricity(e.target.value));
+
+    rangeLoad.addEventListener('input', (e) => applyLoad(e.target.value));
+    numLoad.addEventListener('change', (e) => applyLoad(e.target.value));
+
+    btnPresetLow.addEventListener('click', () => applyEccentricity(1.0));
+    btnPresetStd.addEventListener('click', () => applyEccentricity(1.5));
+    btnPresetHigh.addEventListener('click', () => applyEccentricity(2.2));
+
+    btnAdd1.addEventListener('click', () => applyLoad(state.load_kg + 1.0));
+    btnAdd5.addEventListener('click', () => applyLoad(state.load_kg + 5.0));
+    btnSub1.addEventListener('click', () => applyLoad(Math.max(0, state.load_kg - 1.0)));
+    btnSub5.addEventListener('click', () => applyLoad(Math.max(0, state.load_kg - 5.0)));
+    btnResetLoad.addEventListener('click', () => applyLoad(0));
+
+    window.addEventListener('resize', setupCanvas);
+
+    /**
+     * 7. 60fps 애니메이션 루프 및 메인 렌더링
+     */
+    let lastTimestamp = 0;
+
+    function renderLoop(timestamp) {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      let dt = (timestamp - lastTimestamp) / 1000.0;
+      lastTimestamp = timestamp;
+
+      // 탭 비활성화 후 복귀 시 폭주 방지
+      if (dt > 0.1) dt = 0.1;
+
+      // 회전 속도 제어
+      const dyn = calculateDynamics(state.e, state.load_kg);
+      state.T_max = dyn.T_max;
+      state.T_load = dyn.T_load;
+      state.isStall = dyn.isStall;
+      state.isWarning = dyn.isWarning;
+
+      if (!state.isStall) {
+        const loadRatio = Math.min(1.0, state.T_load / Math.max(0.001, state.T_max));
+        const speedFactor = Math.max(0.08, 1.0 - loadRatio * 0.7);
+        const baseOmega = 3.6; // 입력 크랭크 기본 각속도 (rad/s)
+        state.phi += baseOmega * speedFactor * dt;
+      }
+
+      // 스톨 시 지터(진동) 연출
+      const jitterX = state.isStall ? (Math.random() - 0.5) * 2.5 : 0;
+      const jitterY = state.isStall ? (Math.random() - 0.5) * 2.5 : 0;
+
+      // 메인 캔버스 클리어
+      mainCtx.clearRect(0, 0, viewWidth, viewHeight);
+
+      // 테크니컬 배경 격자
+      drawEngineeringGrid();
+
+      // 기어 메커니즘 렌더링
+      drawCycloidMechanism(jitterX, jitterY);
+
+      // 가이드 도르래, 와이어, 적층형 무게 추 렌더링
+      drawWireAndWeightStack(jitterX, jitterY);
+
+      // 스톨 발생 시 화면 중앙 경고 배너 오버레이
+      if (state.isStall) {
+        drawStallOverlay();
+      }
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    /**
+     * 엔지니어링 다크 테마 배경 격자
+     */
+    function drawEngineeringGrid() {
+      const step = 40;
+      mainCtx.save();
+      mainCtx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
+      mainCtx.lineWidth = 1;
+
+      for (let x = 0; x < viewWidth; x += step) {
+        mainCtx.beginPath();
+        mainCtx.moveTo(x, 0);
+        mainCtx.lineTo(x, viewHeight);
+        mainCtx.stroke();
+      }
+      for (let y = 0; y < viewHeight; y += step) {
+        mainCtx.beginPath();
+        mainCtx.moveTo(0, y);
+        mainCtx.lineTo(viewWidth, y);
+        mainCtx.stroke();
+      }
+
+      // 기어 중심 십자 마크
+      mainCtx.strokeStyle = 'rgba(88, 166, 255, 0.15)';
+      mainCtx.beginPath();
+      mainCtx.moveTo(centerX - 15, centerY);
+      mainCtx.lineTo(centerX + 15, centerY);
+      mainCtx.moveTo(centerX, centerY - 15);
+      mainCtx.lineTo(centerX, centerY + 15);
+      mainCtx.stroke();
+
+      mainCtx.restore();
+    }
+
+    /**
+     * 사이클로이드 감속기 기구부 렌더링
+     */
+    function drawCycloidMechanism(jx, jy) {
+      const Zr = GEAR_SPECS.Zr;
+      const Zc = GEAR_SPECS.Zc;
+      const Rp = GEAR_SPECS.Rp;
+      const r_pin = GEAR_SPECS.r_pin;
+      const r_drive = GEAR_SPECS.r_drive;
+      const pin_dist = GEAR_SPECS.pin_dist;
+      const e = state.e;
+      const phi = state.phi;
+      const scale = gearScale;
+
+      // 1. 외곽 고정 하우징 링 및 핀 10개
+      mainCtx.save();
+      mainCtx.translate(centerX, centerY);
+
+      // 외곽 하우징 림 베이스
+      mainCtx.beginPath();
+      mainCtx.arc(0, 0, (Rp + 8.5) * scale, 0, 2 * Math.PI);
+      mainCtx.arc(0, 0, (Rp - 6.0) * scale, 0, 2 * Math.PI, true);
+      mainCtx.fillStyle = '#161b22';
+      mainCtx.fill();
+      mainCtx.strokeStyle = '#30363d';
+      mainCtx.lineWidth = 1.5;
+      mainCtx.stroke();
+
+      // 고정 핀 10개 렌더링
+      for (let i = 0; i < Zr; i++) {
+        const ang = i * (2 * Math.PI / Zr);
+        const px = Rp * scale * Math.cos(ang);
+        const py = Rp * scale * Math.sin(ang);
+
+        // 핀 본체
+        mainCtx.beginPath();
+        mainCtx.arc(px, py, r_pin * scale, 0, 2 * Math.PI);
+        mainCtx.fillStyle = '#21262d';
+        mainCtx.fill();
+        mainCtx.strokeStyle = '#8b949e';
+        mainCtx.lineWidth = 1.8;
+        mainCtx.stroke();
+
+        // 핀 내부 센터 롤러 심볼
+        mainCtx.beginPath();
+        mainCtx.arc(px, py, 1.2 * scale, 0, 2 * Math.PI);
+        mainCtx.fillStyle = '#8b949e';
+        mainCtx.fill();
+      }
+      mainCtx.restore();
+
+      // 2. 사이클로이드 디스크 (유성 운동: 편심 공전 + 자전)
+      const discCenterWorldX = centerX + e * scale * Math.cos(phi) + jx;
+      const discCenterWorldY = centerY + e * scale * Math.sin(phi) + jy;
+
+      mainCtx.save();
+      mainCtx.translate(discCenterWorldX, discCenterWorldY);
+      mainCtx.rotate(-phi / Zc); // 출력 자전비 9:1 역회전 (완벽한 접촉 유지)
+      mainCtx.scale(scale, scale);
+
+      // 디스크 면 채우기 (evenodd로 홀 내부 투명 처리)
+      mainCtx.fillStyle = 'rgba(88, 166, 255, 0.14)';
+      mainCtx.fill(cachedDiscPath, 'evenodd');
+
+      // 디스크 외곽 및 홀 테두리 스트로크
+      mainCtx.strokeStyle = '#58a6ff';
+      mainCtx.lineWidth = 1.8 / scale;
+      mainCtx.stroke(cachedDiscPath);
+
+      // 디스크 자전 식별용 기준 마크 (12시 방향 작은 돌기/점)
+      mainCtx.beginPath();
+      mainCtx.arc(0, -32, 2.0, 0, 2 * Math.PI);
+      mainCtx.fillStyle = '#58a6ff';
+      mainCtx.fill();
+
+      mainCtx.restore();
+
+      // 3. 입력 크랭크 축 (편심 샤프트 허브)
+      mainCtx.save();
+      mainCtx.translate(centerX + jx, centerY + jy);
+      // 크랭크 암
+      mainCtx.beginPath();
+      mainCtx.moveTo(0, 0);
+      mainCtx.lineTo(e * scale * Math.cos(phi), e * scale * Math.sin(phi));
+      mainCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      mainCtx.lineWidth = 3;
+      mainCtx.lineCap = 'round';
+      mainCtx.stroke();
+
+      // 입력 중심 축
+      mainCtx.beginPath();
+      mainCtx.arc(0, 0, 4 * scale, 0, 2 * Math.PI);
+      mainCtx.fillStyle = '#30363d';
+      mainCtx.fill();
+      mainCtx.strokeStyle = '#c9d1d9';
+      mainCtx.lineWidth = 1.5;
+      mainCtx.stroke();
+      mainCtx.restore();
+
+      // 4. 출력 캐리어 및 4개의 황동색 드라이브 롤러 핀 (순수 자전)
+      const carrierAngle = -phi / Zc;
+      mainCtx.save();
+      mainCtx.translate(centerX + jx, centerY + jy);
+      mainCtx.rotate(carrierAngle);
+
+      // 출력 캐리어 십자형 스파이더 암
+      mainCtx.beginPath();
+      for (let k = 0; k < 4; k++) {
+        const ang = k * (Math.PI / 2);
+        mainCtx.moveTo(0, 0);
+        mainCtx.lineTo(pin_dist * scale * Math.cos(ang), pin_dist * scale * Math.sin(ang));
+      }
+      mainCtx.strokeStyle = 'rgba(227, 179, 65, 0.35)';
+      mainCtx.lineWidth = 2.5;
+      mainCtx.stroke();
+
+      // 출력 롤러 핀 4개 (#e3b341 황동색)
+      for (let k = 0; k < 4; k++) {
+        const ang = k * (Math.PI / 2);
+        const pinX = pin_dist * scale * Math.cos(ang);
+        const pinY = pin_dist * scale * Math.sin(ang);
+
+        mainCtx.beginPath();
+        mainCtx.arc(pinX, pinY, r_drive * scale, 0, 2 * Math.PI);
+        mainCtx.fillStyle = '#d29922';
+        mainCtx.fill();
+        mainCtx.strokeStyle = '#f1e05a';
+        mainCtx.lineWidth = 1.6;
+        mainCtx.stroke();
+
+        // 핀 중심 금속 볼트 마크
+        mainCtx.beginPath();
+        mainCtx.arc(pinX, pinY, 1.2 * scale, 0, 2 * Math.PI);
+        mainCtx.fillStyle = '#161b22';
+        mainCtx.fill();
+      }
+
+      // 출력 와이어 드럼 (중심 허브)
+      const drumRadius = 14 * scale;
+      mainCtx.beginPath();
+      mainCtx.arc(0, 0, drumRadius, 0, 2 * Math.PI);
+      mainCtx.fillStyle = '#21262d';
+      mainCtx.fill();
+      mainCtx.strokeStyle = '#58a6ff';
+      mainCtx.lineWidth = 1.5;
+      mainCtx.stroke();
+
+      // 드럼 회전 눈금
+      mainCtx.beginPath();
+      mainCtx.moveTo(0, 0);
+      mainCtx.lineTo(drumRadius, 0);
+      mainCtx.strokeStyle = '#ffffff';
+      mainCtx.lineWidth = 2;
+      mainCtx.stroke();
+
+      mainCtx.restore();
+    }
+
+    /**
+     * 와이어, 상단 가이드 도르래, 적층형 웨이트 스택 렌더링
+     */
+    function drawWireAndWeightStack(jx, jy) {
+      const scale = gearScale;
+      const drumRadius = 14 * scale;
+
+      // 와이어 색상 상태 결정
+      let wireColor = '#58a6ff';
+      if (state.isStall) {
+        wireColor = '#f85149';
+      } else if (state.isWarning) {
+        wireColor = '#d29922';
+      }
+
+      // 가이드 도르래 위치 (UI 카드와 기어 사이 여백에 적응형 배치)
+      const pulleyX = Math.min(centerX + 260, viewWidth - 320);
+      const pulleyY = centerY - 100;
+      const pulleyRadius = 16;
+
+      // 1. 중앙 출력 드럼 상단에서 도르래 상단으로 이어지는 수평 와이어
+      mainCtx.save();
+      mainCtx.beginPath();
+      mainCtx.moveTo(centerX + jx, centerY - drumRadius + jy);
+      mainCtx.lineTo(pulleyX, pulleyY - pulleyRadius);
+      mainCtx.strokeStyle = wireColor;
+      mainCtx.lineWidth = 2.2;
+      mainCtx.stroke();
+
+      // 2. 도르래 풀리 휠 및 베어링 브래킷
+      mainCtx.beginPath();
+      mainCtx.arc(pulleyX, pulleyY, pulleyRadius, 0, 2 * Math.PI);
+      mainCtx.fillStyle = '#161b22';
+      mainCtx.fill();
+      mainCtx.strokeStyle = '#8b949e';
+      mainCtx.lineWidth = 2;
+      mainCtx.stroke();
+
+      // 도르래 중심 축
+      mainCtx.beginPath();
+      mainCtx.arc(pulleyX, pulleyY, 3.5, 0, 2 * Math.PI);
+      mainCtx.fillStyle = '#58a6ff';
+      mainCtx.fill();
+
+      // 도르래 상단 지지 프레임
+      mainCtx.beginPath();
+      mainCtx.moveTo(pulleyX - 10, pulleyY - pulleyRadius - 12);
+      mainCtx.lineTo(pulleyX + 10, pulleyY - pulleyRadius - 12);
+      mainCtx.lineTo(pulleyX, pulleyY);
+      mainCtx.closePath();
+      mainCtx.strokeStyle = '#30363d';
+      mainCtx.lineWidth = 2;
+      mainCtx.stroke();
+
+      // 3. 도르래에서 아래로 수직 하강하는 와이어
+      const wireDropX = pulleyX + pulleyRadius;
+      const stackBaseY = centerY + 140;
+      const plateH = 9;
+      const maxPlates = 10;
+      const numPlates = Math.min(maxPlates, Math.ceil(state.load_kg / 5.0));
+      const totalStackH = numPlates * (plateH + 2);
+      const stackTopY = stackBaseY - totalStackH;
+
+      mainCtx.beginPath();
+      mainCtx.moveTo(wireDropX, pulleyY);
+      mainCtx.lineTo(wireDropX + jx, stackTopY - 14 + jy);
+      mainCtx.strokeStyle = wireColor;
+      mainCtx.lineWidth = 2.2;
+      mainCtx.stroke();
+
+      // 4. 적층형 웨이트 스택 (Weight Stack) 렌더링
+      const stackW = 68;
+      const plateLeft = wireDropX - stackW / 2 + jx;
+
+      // 상단 행거 및 카라비너
+      mainCtx.beginPath();
+      mainCtx.arc(wireDropX + jx, stackTopY - 8 + jy, 4, 0, 2 * Math.PI);
+      mainCtx.fillStyle = wireColor;
+      mainCtx.fill();
+
+      mainCtx.fillStyle = '#30363d';
+      mainCtx.fillRect(wireDropX - 22 + jx, stackTopY - 4 + jy, 44, 4);
+
+      // 좌우 수직 가이드 로드 (은색 가이드 봉)
+      mainCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+      mainCtx.lineWidth = 2;
+      mainCtx.beginPath();
+      mainCtx.moveTo(wireDropX - 24 + jx, pulleyY + 30);
+      mainCtx.lineTo(wireDropX - 24 + jx, stackBaseY + 12);
+      mainCtx.moveTo(wireDropX + 24 + jx, pulleyY + 30);
+      mainCtx.lineTo(wireDropX + 24 + jx, stackBaseY + 12);
+      mainCtx.stroke();
+
+      // 바닥 베이스 플레이트
+      mainCtx.fillStyle = '#21262d';
+      mainCtx.fillRect(plateLeft - 4, stackBaseY + 4 + jy, stackW + 8, 8);
+      mainCtx.strokeStyle = '#484f58';
+      mainCtx.strokeRect(plateLeft - 4, stackBaseY + 4 + jy, stackW + 8, 8);
+
+      // 하중에 따른 웨이트 플레이트 적층
+      for (let p = 0; p < numPlates; p++) {
+        const py = stackBaseY - (p + 1) * (plateH + 2) + jy;
+
+        // 플레이트 바디
+        mainCtx.fillStyle = (p === numPlates - 1 && state.load_kg % 5 !== 0) ? '#1f242c' : '#2d333b';
+        mainCtx.fillRect(plateLeft, py, stackW, plateH);
+        mainCtx.strokeStyle = '#444c56';
+        mainCtx.lineWidth = 1;
+        mainCtx.strokeRect(plateLeft, py, stackW, plateH);
+
+        // 중앙 핀 홀
+        mainCtx.beginPath();
+        mainCtx.arc(wireDropX + jx, py + plateH / 2, 2.0, 0, 2 * Math.PI);
+        mainCtx.fillStyle = '#161b22';
+        mainCtx.fill();
+      }
+
+      // 웨이트 스택 하단 무게 라벨
+      mainCtx.fillStyle = '#8b949e';
+      mainCtx.font = '11px ui-monospace, SFMono-Regular, monospace';
+      mainCtx.textAlign = 'center';
+      mainCtx.fillText(`LOAD: ${state.load_kg.toFixed(1)} kg`, wireDropX + jx, stackBaseY + 28);
+      mainCtx.fillStyle = wireColor;
+      mainCtx.fillText(`(${state.T_load.toFixed(2)} N·m)`, wireDropX + jx, stackBaseY + 42);
+
+      mainCtx.restore();
+    }
+
+    /**
+     * STALL(한계 돌림힘 초과 정지) 시 중앙 경고 오버레이 배너
+     */
+    function drawStallOverlay() {
+      const bannerW = 340;
+      const bannerH = 64;
+      const bx = centerX - bannerW / 2;
+      const by = centerY - 170;
+
+      mainCtx.save();
+      // 배경 카드 (네온 레드 테두리)
+      mainCtx.fillStyle = 'rgba(22, 10, 12, 0.9)';
+      mainCtx.strokeStyle = '#f85149';
+      mainCtx.lineWidth = 1.8;
+      mainCtx.beginPath();
+      mainCtx.roundRect(bx, by, bannerW, bannerH, 8);
+      mainCtx.fill();
+      mainCtx.stroke();
+
+      // 경고 텍스트
+      mainCtx.fillStyle = '#ff7b72';
+      mainCtx.font = 'bold 13px -apple-system, BlinkMacSystemFont, sans-serif';
+      mainCtx.textAlign = 'center';
+      mainCtx.fillText('⚠️ SYSTEM STALL - 한계 부하 정지', centerX, by + 26);
+
+      mainCtx.fillStyle = '#c9d1d9';
+      mainCtx.font = '11.5px ui-monospace, SFMono-Regular, monospace';
+      mainCtx.fillText(`T_load (${state.T_load.toFixed(2)} N·m) ≥ T_max (${state.T_max.toFixed(2)} N·m)`, centerX, by + 46);
+
+      mainCtx.restore();
+    }
+
+    // --- 시뮬레이션 초기화 실행 ---
+    buildDiscPath(state.e);
+    setupCanvas();
+    updateHUD();
+    requestAnimationFrame(renderLoop);
+  </script>
+</body>
+</html>
