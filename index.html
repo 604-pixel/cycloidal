@@ -186,11 +186,6 @@
       grid-template-columns: repeat(3, 1fr);
       gap: 6px;
     }
-    .btn-grid-2 {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 6px;
-    }
     .btn-reset {
       grid-column: span 3;
       background: rgba(248, 81, 73, 0.1);
@@ -249,7 +244,7 @@
     #hud-card {
       top: 20px;
       right: 20px;
-      width: 260px;
+      width: 270px;
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -278,9 +273,33 @@
       color: #c9d1d9;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
+
+    /* 부하율 미니 게이지 바 */
+    .load-bar-track {
+      width: 100%;
+      height: 6px;
+      background: #21262d;
+      border-radius: 3px;
+      overflow: hidden;
+      margin: -2px 0 2px 0;
+    }
+    .load-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #3fb950;
+      border-radius: 3px;
+      transition: width 0.15s ease, background-color 0.2s ease;
+    }
+    .load-bar-fill.fill-warn {
+      background: #d29922;
+    }
+    .load-bar-fill.fill-stall {
+      background: #f85149;
+    }
+
     .badge-status {
       margin-top: 4px;
-      padding: 6px 10px;
+      padding: 7px 10px;
       border-radius: 6px;
       font-size: 11px;
       font-weight: 700;
@@ -428,7 +447,7 @@
       <!-- 간결한 실험 가이드 -->
       <div class="guide-box">
         💡 <strong>역학 특성 가이드:</strong><br>
-        편심량(e)이 커지면 모멘트 암이 증가해 최대 토크가 상승하지만, <strong>2.4mm 이상</strong>에서는 압력각 급증 및 간섭으로 인해 기구가 멈춥니다. 부하 토크(T_load)가 한계 토크(T_max)를 넘어서면 감속기가 <strong>STALL(정지)</strong> 상태에 진입합니다.
+        편심량(e)이 커지면 모멘트 암이 증가해 최대 토크가 상승하지만, <strong>2.4mm 이상</strong>에서는 압력각 급증 및 간섭으로 인해 기구가 멈춥니다. 인가 부하율(Load Ratio)이 <strong>80% 이상</strong>이면 과부하 경고가 발생하며, <strong>100% 도달 시</strong> 감속기가 완전히 <strong>STALL(정지)</strong>합니다.
       </div>
     </aside>
 
@@ -448,15 +467,25 @@
           <span class="hud-metric-val" id="hud-alpha">19.5°</span>
         </div>
         <div class="hud-metric">
-          <span>인가 토크 (T_load)</span>
-          <span class="hud-metric-val" id="hud-tload">4.90 N·m</span>
-        </div>
-        <div class="hud-metric">
           <span>한계 돌림힘 (T_max)</span>
           <span class="hud-metric-val" id="hud-tmax">13.25 N·m</span>
         </div>
+        <div class="hud-metric">
+          <span>인가 부하 (T_load)</span>
+          <span class="hud-metric-val" id="hud-tload">4.90 N·m (10.0kg)</span>
+        </div>
+        
+        <!-- 실시간 부하율 및 게이지 바 -->
+        <div class="hud-metric" style="margin-top: 2px;">
+          <span>인가 부하율 (Ratio)</span>
+          <span class="hud-metric-val" id="hud-ratio">37.0%</span>
+        </div>
+        <div class="load-bar-track">
+          <div id="load-bar-fill" class="load-bar-fill"></div>
+        </div>
+
         <div id="hud-status" class="badge-status status-normal">
-          정상 가동 중
+          정상 가동 (37.0%)
         </div>
       </div>
 
@@ -495,11 +524,12 @@
 
     // --- 시뮬레이션 제어 상태 ---
     let state = {
-      e: 1.50,            // 편심량 (mm)
-      load_kg: 10.0,      // 인가 하중 (kg)
-      phi: 0.0,           // 입력 크랭크 회전각 (rad)
+      e: 1.50,             // 편심량 (mm)
+      load_kg: 10.0,       // 인가 하중 (kg)
+      phi: 0.0,            // 입력 크랭크 회전각 (rad)
       isStall: false,
       isWarning: false,
+      loadPercent: 0.0,    // 실제 인가 부하율 (%)
       T_load: 0.0,
       T_max: 0.0,
       alpha_max_deg: 0.0
@@ -535,6 +565,8 @@
     const hudAlpha = document.getElementById('hud-alpha');
     const hudTload = document.getElementById('hud-tload');
     const hudTmax = document.getElementById('hud-tmax');
+    const hudRatio = document.getElementById('hud-ratio');
+    const loadBarFill = document.getElementById('load-bar-fill');
     const hudStatus = document.getElementById('hud-status');
 
     // 뷰포트 크기 및 스케일 상태
@@ -545,7 +577,7 @@
     let gearScale = 1.0;
 
     /**
-     * 1. 사이클로이드 역학 및 한계 토크 계산 함수
+     * 1. 사이클로이드 역학 및 동적 부하율(%) 계산 함수
      */
     function calculateDynamics(e_val, load_val) {
       const Zr = GEAR_SPECS.Zr;
@@ -560,8 +592,16 @@
 
       const T_load = load_val * GEAR_SPECS.gravity * GEAR_SPECS.drum_radius_m;
 
+      // 실제 인가 부하 퍼센티지 정밀 계산
+      let loadPercent = 0.0;
+      if (T_max > 0.001) {
+        loadPercent = (T_load / T_max) * 100.0;
+      } else {
+        loadPercent = (T_load > 0) ? 999.9 : 0.0;
+      }
+
       const isStall = (T_load >= T_max) || (T_max <= 0.001);
-      const isWarning = !isStall && (T_load >= 0.8 * T_max);
+      const isWarning = !isStall && (loadPercent >= 80.0);
 
       return {
         K1,
@@ -569,6 +609,7 @@
         alpha_max_deg,
         T_max,
         T_load,
+        loadPercent,
         isStall,
         isWarning
       };
@@ -622,12 +663,13 @@
     }
 
     /**
-     * 3. HUD 및 텍스트 상태 동기화
+     * 3. HUD 및 텍스트 상태 동기화 (실제 부하율 실시간 반영)
      */
     function updateHUD() {
       const dyn = calculateDynamics(state.e, state.load_kg);
       state.T_max = dyn.T_max;
       state.T_load = dyn.T_load;
+      state.loadPercent = dyn.loadPercent;
       state.alpha_max_deg = dyn.alpha_max_deg;
       state.isStall = dyn.isStall;
       state.isWarning = dyn.isWarning;
@@ -642,20 +684,32 @@
 
       hudE.textContent = state.e.toFixed(2) + ' mm';
       hudAlpha.textContent = state.alpha_max_deg.toFixed(1) + '°';
-      hudTload.textContent = state.T_load.toFixed(2) + ' N·m (' + state.load_kg.toFixed(1) + 'kg)';
       hudTmax.textContent = state.T_max.toFixed(2) + ' N·m';
+      hudTload.textContent = state.T_load.toFixed(2) + ' N·m (' + state.load_kg.toFixed(1) + 'kg)';
 
-      // 뱃지 상태 업데이트
+      // 실제 인가 부하율 표시 포맷
+      const percentStr = (state.loadPercent >= 999.0) ? '초과 (한계 0)' : (state.loadPercent.toFixed(1) + '%');
+      hudRatio.textContent = percentStr;
+
+      // 부하 게이지 바 너비 및 색상 반영
+      const barWidth = Math.min(100, Math.max(0, state.loadPercent));
+      loadBarFill.style.width = barWidth + '%';
+
+      // 뱃지 상태 및 게이지 클래스 실시간 업데이트
       hudStatus.className = 'badge-status';
+      loadBarFill.className = 'load-bar-fill';
+
       if (state.isStall) {
         hudStatus.classList.add('status-stall');
-        hudStatus.textContent = 'STALL 한계 정지 (과부하)';
+        hudStatus.textContent = `STALL 한계 정지 (${percentStr})`;
+        loadBarFill.classList.add('fill-stall');
       } else if (state.isWarning) {
         hudStatus.classList.add('status-warn');
-        hudStatus.textContent = '과부하 경고 (80% 도달)';
+        hudStatus.textContent = `과부하 경고 (${percentStr})`;
+        loadBarFill.classList.add('fill-warn');
       } else {
         hudStatus.classList.add('status-normal');
-        hudStatus.textContent = '정상 가동 (운전 중)';
+        hudStatus.textContent = `정상 가동 (${percentStr})`;
       }
 
       // 프리셋 버튼 활성 클래스 갱신
@@ -665,8 +719,7 @@
     }
 
     /**
-     * 4. 서브 그래프 캔버스 렌더링 (T_max 특성 곡선)
-     * e 슬라이더, 하중 변경, 리사이즈 시에만 단독 호출되어 최적화 유지
+     * 4. 서브 그래프 캔버스 렌더링 (T_max 특성 곡선 및 실시간 부하율)
      */
     function drawTorqueGraph() {
       const rect = graphCanvas.getBoundingClientRect();
@@ -775,16 +828,23 @@
         graphCtx.stroke();
       }
 
-      // 황색 점선: 현재 인가 부하 토크(T_load) 수평선
+      // 황색 점선: 현재 인가 부하 토크(T_load) 수평선 및 부하율 텍스트
       const curLoadY = mapY(state.T_load);
       graphCtx.save();
       graphCtx.setLineDash([3, 3]);
-      graphCtx.strokeStyle = '#d29922';
+      graphCtx.strokeStyle = state.isStall ? '#f85149' : (state.isWarning ? '#d29922' : '#58a6ff');
       graphCtx.lineWidth = 1.4;
       graphCtx.beginPath();
       graphCtx.moveTo(padL, curLoadY);
       graphCtx.lineTo(padL + plotW, curLoadY);
       graphCtx.stroke();
+
+      // 우측 부하율 라벨
+      graphCtx.fillStyle = graphCtx.strokeStyle;
+      graphCtx.font = '8.5px ui-monospace, SFMono-Regular, monospace';
+      graphCtx.textAlign = 'right';
+      const pctLabel = (state.loadPercent >= 999) ? 'STALL' : state.loadPercent.toFixed(0) + '%';
+      graphCtx.fillText(pctLabel, padL + plotW, curLoadY - 3);
       graphCtx.restore();
 
       // 빨간 점 및 수직 점선: 현재 편심량(e) 위치
@@ -826,10 +886,9 @@
       mainCanvas.width = Math.floor(viewWidth * dpr);
       mainCanvas.height = Math.floor(viewHeight * dpr);
 
-      mainCtx.setTransform(1, 0, 0, 1, 0, 0); // 스케일 리셋
+      mainCtx.setTransform(1, 0, 0, 1, 0, 0);
       mainCtx.scale(dpr, dpr);
 
-      // 기어 중심 및 스케일 규칙 적용
       centerX = viewWidth * 0.38;
       centerY = viewHeight * 0.50;
       gearScale = Math.min(viewWidth, viewHeight) / 250;
@@ -881,18 +940,18 @@
       let dt = (timestamp - lastTimestamp) / 1000.0;
       lastTimestamp = timestamp;
 
-      // 탭 비활성화 후 복귀 시 폭주 방지
       if (dt > 0.1) dt = 0.1;
 
       // 회전 속도 제어
       const dyn = calculateDynamics(state.e, state.load_kg);
       state.T_max = dyn.T_max;
       state.T_load = dyn.T_load;
+      state.loadPercent = dyn.loadPercent;
       state.isStall = dyn.isStall;
       state.isWarning = dyn.isWarning;
 
       if (!state.isStall) {
-        const loadRatio = Math.min(1.0, state.T_load / Math.max(0.001, state.T_max));
+        const loadRatio = Math.min(1.0, state.loadPercent / 100.0);
         const speedFactor = Math.max(0.08, 1.0 - loadRatio * 0.7);
         const baseOmega = 3.6; // 입력 크랭크 기본 각속도 (rad/s)
         state.phi += baseOmega * speedFactor * dt;
@@ -902,7 +961,6 @@
       const jitterX = state.isStall ? (Math.random() - 0.5) * 2.5 : 0;
       const jitterY = state.isStall ? (Math.random() - 0.5) * 2.5 : 0;
 
-      // 메인 캔버스 클리어
       mainCtx.clearRect(0, 0, viewWidth, viewHeight);
 
       // 테크니컬 배경 격자
@@ -990,7 +1048,6 @@
         const px = Rp * scale * Math.cos(ang);
         const py = Rp * scale * Math.sin(ang);
 
-        // 핀 본체
         mainCtx.beginPath();
         mainCtx.arc(px, py, r_pin * scale, 0, 2 * Math.PI);
         mainCtx.fillStyle = '#21262d';
@@ -999,7 +1056,6 @@
         mainCtx.lineWidth = 1.8;
         mainCtx.stroke();
 
-        // 핀 내부 센터 롤러 심볼
         mainCtx.beginPath();
         mainCtx.arc(px, py, 1.2 * scale, 0, 2 * Math.PI);
         mainCtx.fillStyle = '#8b949e';
@@ -1013,7 +1069,7 @@
 
       mainCtx.save();
       mainCtx.translate(discCenterWorldX, discCenterWorldY);
-      mainCtx.rotate(-phi / Zc); // 출력 자전비 9:1 역회전 (완벽한 접촉 유지)
+      mainCtx.rotate(-phi / Zc);
       mainCtx.scale(scale, scale);
 
       // 디스크 면 채우기 (evenodd로 홀 내부 투명 처리)
@@ -1025,7 +1081,7 @@
       mainCtx.lineWidth = 1.8 / scale;
       mainCtx.stroke(cachedDiscPath);
 
-      // 디스크 자전 식별용 기준 마크 (12시 방향 작은 돌기/점)
+      // 디스크 자전 식별용 마크
       mainCtx.beginPath();
       mainCtx.arc(0, -32, 2.0, 0, 2 * Math.PI);
       mainCtx.fillStyle = '#58a6ff';
@@ -1036,7 +1092,6 @@
       // 3. 입력 크랭크 축 (편심 샤프트 허브)
       mainCtx.save();
       mainCtx.translate(centerX + jx, centerY + jy);
-      // 크랭크 암
       mainCtx.beginPath();
       mainCtx.moveTo(0, 0);
       mainCtx.lineTo(e * scale * Math.cos(phi), e * scale * Math.sin(phi));
@@ -1045,7 +1100,6 @@
       mainCtx.lineCap = 'round';
       mainCtx.stroke();
 
-      // 입력 중심 축
       mainCtx.beginPath();
       mainCtx.arc(0, 0, 4 * scale, 0, 2 * Math.PI);
       mainCtx.fillStyle = '#30363d';
@@ -1072,7 +1126,7 @@
       mainCtx.lineWidth = 2.5;
       mainCtx.stroke();
 
-      // 출력 롤러 핀 4개 (#e3b341 황동색)
+      // 출력 롤러 핀 4개
       for (let k = 0; k < 4; k++) {
         const ang = k * (Math.PI / 2);
         const pinX = pin_dist * scale * Math.cos(ang);
@@ -1086,14 +1140,13 @@
         mainCtx.lineWidth = 1.6;
         mainCtx.stroke();
 
-        // 핀 중심 금속 볼트 마크
         mainCtx.beginPath();
         mainCtx.arc(pinX, pinY, 1.2 * scale, 0, 2 * Math.PI);
         mainCtx.fillStyle = '#161b22';
         mainCtx.fill();
       }
 
-      // 출력 와이어 드럼 (중심 허브)
+      // 출력 와이어 드럼
       const drumRadius = 14 * scale;
       mainCtx.beginPath();
       mainCtx.arc(0, 0, drumRadius, 0, 2 * Math.PI);
@@ -1103,7 +1156,6 @@
       mainCtx.lineWidth = 1.5;
       mainCtx.stroke();
 
-      // 드럼 회전 눈금
       mainCtx.beginPath();
       mainCtx.moveTo(0, 0);
       mainCtx.lineTo(drumRadius, 0);
@@ -1121,7 +1173,6 @@
       const scale = gearScale;
       const drumRadius = 14 * scale;
 
-      // 와이어 색상 상태 결정
       let wireColor = '#58a6ff';
       if (state.isStall) {
         wireColor = '#f85149';
@@ -1129,12 +1180,11 @@
         wireColor = '#d29922';
       }
 
-      // 가이드 도르래 위치 (UI 카드와 기어 사이 여백에 적응형 배치)
       const pulleyX = Math.min(centerX + 260, viewWidth - 320);
       const pulleyY = centerY - 100;
       const pulleyRadius = 16;
 
-      // 1. 중앙 출력 드럼 상단에서 도르래 상단으로 이어지는 수평 와이어
+      // 1. 수평 와이어
       mainCtx.save();
       mainCtx.beginPath();
       mainCtx.moveTo(centerX + jx, centerY - drumRadius + jy);
@@ -1143,7 +1193,7 @@
       mainCtx.lineWidth = 2.2;
       mainCtx.stroke();
 
-      // 2. 도르래 풀리 휠 및 베어링 브래킷
+      // 2. 도르래 풀리
       mainCtx.beginPath();
       mainCtx.arc(pulleyX, pulleyY, pulleyRadius, 0, 2 * Math.PI);
       mainCtx.fillStyle = '#161b22';
@@ -1152,13 +1202,11 @@
       mainCtx.lineWidth = 2;
       mainCtx.stroke();
 
-      // 도르래 중심 축
       mainCtx.beginPath();
       mainCtx.arc(pulleyX, pulleyY, 3.5, 0, 2 * Math.PI);
       mainCtx.fillStyle = '#58a6ff';
       mainCtx.fill();
 
-      // 도르래 상단 지지 프레임
       mainCtx.beginPath();
       mainCtx.moveTo(pulleyX - 10, pulleyY - pulleyRadius - 12);
       mainCtx.lineTo(pulleyX + 10, pulleyY - pulleyRadius - 12);
@@ -1168,7 +1216,7 @@
       mainCtx.lineWidth = 2;
       mainCtx.stroke();
 
-      // 3. 도르래에서 아래로 수직 하강하는 와이어
+      // 3. 수직 하강 와이어
       const wireDropX = pulleyX + pulleyRadius;
       const stackBaseY = centerY + 140;
       const plateH = 9;
@@ -1184,11 +1232,10 @@
       mainCtx.lineWidth = 2.2;
       mainCtx.stroke();
 
-      // 4. 적층형 웨이트 스택 (Weight Stack) 렌더링
+      // 4. 적층형 웨이트 스택
       const stackW = 68;
       const plateLeft = wireDropX - stackW / 2 + jx;
 
-      // 상단 행거 및 카라비너
       mainCtx.beginPath();
       mainCtx.arc(wireDropX + jx, stackTopY - 8 + jy, 4, 0, 2 * Math.PI);
       mainCtx.fillStyle = wireColor;
@@ -1197,7 +1244,6 @@
       mainCtx.fillStyle = '#30363d';
       mainCtx.fillRect(wireDropX - 22 + jx, stackTopY - 4 + jy, 44, 4);
 
-      // 좌우 수직 가이드 로드 (은색 가이드 봉)
       mainCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
       mainCtx.lineWidth = 2;
       mainCtx.beginPath();
@@ -1207,53 +1253,48 @@
       mainCtx.lineTo(wireDropX + 24 + jx, stackBaseY + 12);
       mainCtx.stroke();
 
-      // 바닥 베이스 플레이트
       mainCtx.fillStyle = '#21262d';
       mainCtx.fillRect(plateLeft - 4, stackBaseY + 4 + jy, stackW + 8, 8);
       mainCtx.strokeStyle = '#484f58';
       mainCtx.strokeRect(plateLeft - 4, stackBaseY + 4 + jy, stackW + 8, 8);
 
-      // 하중에 따른 웨이트 플레이트 적층
       for (let p = 0; p < numPlates; p++) {
         const py = stackBaseY - (p + 1) * (plateH + 2) + jy;
-
-        // 플레이트 바디
         mainCtx.fillStyle = (p === numPlates - 1 && state.load_kg % 5 !== 0) ? '#1f242c' : '#2d333b';
         mainCtx.fillRect(plateLeft, py, stackW, plateH);
         mainCtx.strokeStyle = '#444c56';
         mainCtx.lineWidth = 1;
         mainCtx.strokeRect(plateLeft, py, stackW, plateH);
 
-        // 중앙 핀 홀
         mainCtx.beginPath();
         mainCtx.arc(wireDropX + jx, py + plateH / 2, 2.0, 0, 2 * Math.PI);
         mainCtx.fillStyle = '#161b22';
         mainCtx.fill();
       }
 
-      // 웨이트 스택 하단 무게 라벨
+      // 하중 및 부하율 라벨
       mainCtx.fillStyle = '#8b949e';
       mainCtx.font = '11px ui-monospace, SFMono-Regular, monospace';
       mainCtx.textAlign = 'center';
       mainCtx.fillText(`LOAD: ${state.load_kg.toFixed(1)} kg`, wireDropX + jx, stackBaseY + 28);
       mainCtx.fillStyle = wireColor;
-      mainCtx.fillText(`(${state.T_load.toFixed(2)} N·m)`, wireDropX + jx, stackBaseY + 42);
+      const ratioTxt = (state.loadPercent >= 999) ? 'STALL' : `${state.loadPercent.toFixed(1)}%`;
+      mainCtx.fillText(`${state.T_load.toFixed(2)} N·m (${ratioTxt})`, wireDropX + jx, stackBaseY + 42);
 
       mainCtx.restore();
     }
 
     /**
-     * STALL(한계 돌림힘 초과 정지) 시 중앙 경고 오버레이 배너
+     * STALL 발생 시 화면 중앙 경고 배너 오버레이 (실제 부하율 표시)
      */
     function drawStallOverlay() {
-      const bannerW = 340;
-      const bannerH = 64;
+      const bannerW = 360;
+      const bannerH = 68;
       const bx = centerX - bannerW / 2;
-      const by = centerY - 170;
+      const by = centerY - 175;
 
       mainCtx.save();
-      // 배경 카드 (네온 레드 테두리)
-      mainCtx.fillStyle = 'rgba(22, 10, 12, 0.9)';
+      mainCtx.fillStyle = 'rgba(22, 10, 12, 0.92)';
       mainCtx.strokeStyle = '#f85149';
       mainCtx.lineWidth = 1.8;
       mainCtx.beginPath();
@@ -1261,15 +1302,15 @@
       mainCtx.fill();
       mainCtx.stroke();
 
-      // 경고 텍스트
       mainCtx.fillStyle = '#ff7b72';
       mainCtx.font = 'bold 13px -apple-system, BlinkMacSystemFont, sans-serif';
       mainCtx.textAlign = 'center';
       mainCtx.fillText('⚠️ SYSTEM STALL - 한계 부하 정지', centerX, by + 26);
 
       mainCtx.fillStyle = '#c9d1d9';
-      mainCtx.font = '11.5px ui-monospace, SFMono-Regular, monospace';
-      mainCtx.fillText(`T_load (${state.T_load.toFixed(2)} N·m) ≥ T_max (${state.T_max.toFixed(2)} N·m)`, centerX, by + 46);
+      mainCtx.font = '11px ui-monospace, SFMono-Regular, monospace';
+      const pctStr = (state.loadPercent >= 999) ? '한계 0 초과' : `${state.loadPercent.toFixed(1)}%`;
+      mainCtx.fillText(`T_load (${state.T_load.toFixed(2)} N·m) ≥ T_max (${state.T_max.toFixed(2)} N·m) [부하율: ${pctStr}]`, centerX, by + 48);
 
       mainCtx.restore();
     }
